@@ -1,23 +1,18 @@
 package main
 
 import (
-	//"reflect" // Good for finding type: `println(reflect.TypeOf(VARIABLE).String())`
-	"os"
-	"io"
+	"context"
 	"fmt"
-	"net"
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/pcap"
-	"github.com/google/gopacket/layers"
 	"github.com/fatih/color"
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
+	"github.com/google/gopacket/pcap"
+	"io"
+	"net"
+	"os"
+	"strings"
+	"time"
 )
-
-/*   GRAVEYARD CODE
-	fmt.Printf("%v ... %v ... %v\n", color.MagentaString("Test!"), color.HiWhiteString("then another"), color.HiYellowString("ANOTHER!"))
-
-
-*/
-
 
 func main() {
 	if len(os.Args) < 2 {
@@ -28,7 +23,7 @@ func main() {
 		if handle, err := pcap.OpenOffline(os.Args[1]); err != nil {
 			panic(err)
 		} else {
-			fmt.Println("Opened the pcap file:", os.Args[1])
+			fmt.Println("Opened the pcap file:", color.YellowString(os.Args[1]))
 			packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 			var record_collection []dns_record
 			for {
@@ -43,7 +38,7 @@ func main() {
 				}
 			}
 			record_collection = reverseLookupCollection(removeNilIPs(record_collection))
-			println("Got here. First record: ", record_collection[0].name)
+			printCollection(record_collection)
 		}
 	}
 }
@@ -52,7 +47,7 @@ func handlePacket(packet gopacket.Packet) dns_record {
 	dns_pkt, _ := packet.Layer(layers.LayerTypeDNS).(*layers.DNS)
 	var (
 		pkt_name string
-		pkt_ips []net.IP
+		pkt_ips  []net.IP
 	)
 	for i, answer := range dns_pkt.Answers {
 		if i == 0 {
@@ -65,17 +60,20 @@ func handlePacket(packet gopacket.Packet) dns_record {
 }
 
 func isDNS(packet gopacket.Packet) bool {
-	if packet.Layer(layers.LayerTypeDNS) != nil { return true }
+	if packet.Layer(layers.LayerTypeDNS) != nil {
+		return true
+	}
 	return false
 }
 
 func isDNSAnswer(packet gopacket.Packet) bool {
 	dns_pkt, _ := packet.Layer(layers.LayerTypeDNS).(*layers.DNS)
-	if len(dns_pkt.Answers) != 0 { return true }
+	if len(dns_pkt.Answers) != 0 {
+		return true
+	}
 	return false
 }
 
-// This function should help de-duplicate -- especially the IPv4 vs IPv6 responses.
 func appendRecordToCollection(collection []dns_record, record dns_record) []dns_record {
 	for i := range collection {
 		if collection[i].name == record.name {
@@ -99,13 +97,12 @@ func appendRecordToCollection(collection []dns_record, record dns_record) []dns_
 	return collection
 }
 
-// Not sure where they're coming from, but I'm dropping them.
 func removeNilIPs(collection []dns_record) []dns_record {
 	for i := range collection {
-		for j := range collection[len(collection) - (i+1)].ips {
-			if collection[len(collection) - (i+1)].ips[len(collection[len(collection) - (i+1)].ips) - (j+1)] == nil {
-				collection[len(collection) - (i+1)].ips = append(collection[len(collection) - (i+1)].ips[:len(collection[len(collection) - (i+1)].ips) - (j+1)], collection[len(collection) - (i+1)].ips[len(collection[len(collection) - (i+1)].ips) - (j+1) + 1:]...)
-				collection[len(collection) - (i+1)].reverse = append(collection[len(collection) - (i+1)].reverse[:len(collection[len(collection) - (i+1)].reverse) - (j+1)], collection[len(collection) - (i+1)].reverse[len(collection[len(collection) - (i+1)].reverse) - (j+1) + 1:]...)
+		for j := range collection[len(collection)-(i+1)].ips {
+			if collection[len(collection)-(i+1)].ips[len(collection[len(collection)-(i+1)].ips)-(j+1)] == nil {
+				collection[len(collection)-(i+1)].ips = append(collection[len(collection)-(i+1)].ips[:len(collection[len(collection)-(i+1)].ips)-(j+1)], collection[len(collection)-(i+1)].ips[len(collection[len(collection)-(i+1)].ips)-(j+1)+1:]...)
+				collection[len(collection)-(i+1)].reverse = append(collection[len(collection)-(i+1)].reverse[:len(collection[len(collection)-(i+1)].reverse)-(j+1)], collection[len(collection)-(i+1)].reverse[len(collection[len(collection)-(i+1)].reverse)-(j+1)+1:]...)
 			}
 		}
 	}
@@ -113,18 +110,45 @@ func removeNilIPs(collection []dns_record) []dns_record {
 }
 
 func reverseLookupCollection(collection []dns_record) []dns_record {
+	resolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			d := net.Dialer{
+				Timeout: time.Millisecond * time.Duration(10000),
+			}
+			return d.DialContext(ctx, "udp", "8.8.8.8:53")
+		},
+	}
 	for i := range collection {
 		for j := range collection[i].ips {
-			reversed, _ := net.LookupAddr(collection[i].ips[j].String())
+			reversed, _ := resolver.LookupAddr(context.Background(), collection[i].ips[j].String())
 			collection[i].reverse[j] = reversed
 		}
 	}
 	return collection
 }
 
-type dns_record struct {
-	name string
-	ips []net.IP
-	reverse [][]string
+func printCollection(collection []dns_record) {
+	for i := range collection {
+		for j := range collection[i].ips {
+			for k := range collection[i].reverse[j] {
+				print(color.CyanString(collection[i].name))
+				print(color.HiWhiteString(" -> "))
+				print(color.HiYellowString(collection[i].ips[j].String()))
+				print(color.HiWhiteString(" -> "))
+				if strings.Contains(strings.ToUpper(collection[i].name), strings.ToUpper(collection[i].reverse[j][k])) || strings.Contains(strings.ToUpper(collection[i].reverse[j][k]), strings.ToUpper(collection[i].name)) {
+					print(color.GreenString(collection[i].reverse[j][k]))
+				} else {
+					print(color.RedString(collection[i].reverse[j][k]))
+				}
+				print("\n")
+			}
+		}
+	}
 }
 
+type dns_record struct {
+	name    string
+	ips     []net.IP
+	reverse [][]string
+}
