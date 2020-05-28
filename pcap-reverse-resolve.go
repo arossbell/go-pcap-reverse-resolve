@@ -37,8 +37,7 @@ func main() {
 					record_collection = appendRecordToCollection(record_collection, handlePacket(packet))
 				}
 			}
-			record_collection = reverseLookupCollection(removeNilIPs(record_collection))
-			printCollection(record_collection)
+			printCollection(reverseLookupCollection(record_collection))
 		}
 	}
 }
@@ -94,18 +93,6 @@ func appendRecordToCollection(collection []dns_record, record dns_record) []dns_
 		}
 	}
 	collection = append(collection, record)
-	return collection
-}
-
-func removeNilIPs(collection []dns_record) []dns_record {
-	for i := range collection {
-		for j := range collection[len(collection)-(i+1)].ips {
-			if collection[len(collection)-(i+1)].ips[len(collection[len(collection)-(i+1)].ips)-(j+1)] == nil {
-				collection[len(collection)-(i+1)].ips = append(collection[len(collection)-(i+1)].ips[:len(collection[len(collection)-(i+1)].ips)-(j+1)], collection[len(collection)-(i+1)].ips[len(collection[len(collection)-(i+1)].ips)-(j+1)+1:]...)
-				collection[len(collection)-(i+1)].reverse = append(collection[len(collection)-(i+1)].reverse[:len(collection[len(collection)-(i+1)].reverse)-(j+1)], collection[len(collection)-(i+1)].reverse[len(collection[len(collection)-(i+1)].reverse)-(j+1)+1:]...)
-			}
-		}
-	}
 	return collection
 }
 
