@@ -1,3 +1,9 @@
+# Built Binary
+pcap-reverse-resolve
+
+# PCAP files for testing
+*.pcap
+
 # Binaries for programs and plugins
 *.exe
 *.exe~
